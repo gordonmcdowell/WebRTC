@@ -3,7 +3,7 @@ run-name: WebRTC Release
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 12 * * 3'
+    - cron: '0 12 * * *'
 jobs:
   Build-Script:
     runs-on: macos-latest
@@ -12,11 +12,19 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v3
+      # WebRTC milestone branches ship with frozen Chromium buildtools that
+      # only support the Xcode/SDK version current at the time of the branch
+      # cut. Newer Xcode versions introduce SDK framework splits (e.g.
+      # DarwinFoundation, UIUtilities) that break the build. Pin to the
+      # version expected by the buildtools (see build/mac_toolchain.py in
+      # the WebRTC source for each milestone).
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.1.app
       - name: Set up Python 3.x
         uses: actions/setup-python@v4
         with:
           python-version: "3.x"
-      - name: Running WebRTC weekly release checks
+      - name: Running WebRTC release checks
         run: |
           sh clean.sh
           pip install requests python-telegram-bot

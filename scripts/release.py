@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import telegram
 
 GITHUB_TOKEN=os.environ.get("GITHUB_TOKEN")
+GITHUB_REPO=os.environ.get("GITHUB_REPOSITORY", "stasel/WebRTC")
 TELEGRAM_TOKEN=os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID=os.environ.get("TELEGRAM_CHAT_ID")
 
@@ -22,16 +23,38 @@ class BuildMetadata:
     commit: str
     branch: str
 
+def getStableMilestone():
+    """Find the current stable milestone from the Chromium Dashboard."""
+    try:
+        response = requests.get("https://chromiumdash.appspot.com/fetch_milestones")
+        response.raise_for_status()
+        milestones = response.json()
+        stable = [m for m in milestones if m.get("schedule_phase") == "stable"]
+        if stable:
+            return int(max(stable, key=lambda m: m["milestone"])["milestone"])
+        print("Warning: no milestone with schedule_phase 'stable' found")
+    except (requests.RequestException, KeyError, ValueError, TypeError) as e:
+        print(f"Warning: failed to fetch stable milestone: {e}")
+    return None
+
 def getNextRelease():
     # Get current version
-    releases = requests.get("https://api.github.com/repos/stasel/WebRTC/releases", headers={'Authorization': f"token {GITHUB_TOKEN}"}).json()
+    releases = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases", headers={'Authorization': f"token {GITHUB_TOKEN}"}).json()
     print(releases)
     latestReleaseVersion = int(releases[0]["tag_name"].split(".")[0])
     latestReleaseDate = datetime.fromisoformat(releases[0]["published_at"].replace("Z", ""))
     print(f"Latest release: version {latestReleaseVersion}, date: {latestReleaseDate}")
 
-    # Get next version
-    nextReleaseVersion = latestReleaseVersion + 1
+    # Get the current stable milestone
+    stableMilestone = getStableMilestone()
+    if not stableMilestone:
+        print("❌ Could not determine current stable milestone")
+        os._exit(os.EX_SOFTWARE)
+
+    nextReleaseVersion = max(latestReleaseVersion + 1, stableMilestone)
+    if nextReleaseVersion > latestReleaseVersion + 1:
+        print(f"Current stable milestone is M{stableMilestone}, skipping ahead from M{latestReleaseVersion + 1}")
+
     milestones = requests.get(f"https://chromiumdash.appspot.com/fetch_milestone_schedule?mstone={nextReleaseVersion}").json()
     nextReleaseDate = datetime.fromisoformat(milestones["mstones"][0]["stable_date"])
     print(f"Next release:   version {nextReleaseVersion}, date: {nextReleaseDate}")
@@ -72,7 +95,7 @@ def createReleaseDraft(release, buildMetadata):
         'body': body
     }
     headers = {'accept': 'application/vnd.github.v3+json', 'Authorization': f'token {GITHUB_TOKEN}'}
-    return requests.post("https://api.github.com/repos/stasel/WebRTC/releases", json = fields, headers = headers).json()
+    return requests.post(f"https://api.github.com/repos/{GITHUB_REPO}/releases", json = fields, headers = headers).json()
 
 def uploadReleaseAsset(url, assetLocalPath, assetName):
     url = url.replace(u'{?name,label}','')
@@ -92,9 +115,9 @@ def createPullRequest(release, head):
         'title': f'Release M{release.version}',
         'head': head,
         'base': 'latest',
-        'body': 'Created by an automated sotfware 🤖'
+        'body': f'Updated files for release M{release.version}.'
     }
-    response = requests.post("https://api.github.com/repos/stasel/WebRTC/pulls", json = body, headers = headers)
+    response = requests.post(f"https://api.github.com/repos/{GITHUB_REPO}/pulls", json = body, headers = headers)
     success = response.status_code == requests.codes.created
     if not success:
         print(response)
@@ -155,14 +178,14 @@ if __name__ == "__main__":
 
     # Change code
     print("➡️ Applying code changes...")
-    os.system(f"sed -i '' -E 's/[0-9]+.0.0\/WebRTC-M[0-9]+/{nextRelease.version}.0.0\/WebRTC-M{nextRelease.version}/g' Package.swift WebRTC-lib.podspec")
+    os.system(f"sed -i '' -E 's/[0-9]+\.[0-9]+\.[0-9]+\/WebRTC-M[0-9]+/{nextRelease.version}.0.0\/WebRTC-M{nextRelease.version}/g' Package.swift WebRTC-lib.podspec")
     os.system(f"sed -i '' -E 's/checksum: \"[0-9a-f]+\"/checksum: \"{buildMetadata.checksum}\"/g' Package.swift WebRTC-lib.podspec ")
-    os.system(f"sed -i '' -E 's/.upToNextMajor\\(\"[0-9]+.0.0/.upToNextMajor\\(\"{nextRelease.version}.0.0/g' README.md")
-    os.system(f"sed -i '' -E 's/spec.version      = \"[0-9]+.0.0\"/spec.version      = \"{nextRelease.version}.0.0\"/g' WebRTC-lib.podspec")
+    os.system(f"sed -i '' -E 's/.upToNextMajor\\(\"[0-9]+\.[0-9]+\.[0-9]+/.upToNextMajor\\(\"{nextRelease.version}.0.0/g' README.md")
+    os.system(f"sed -i '' -E 's/spec.version      = \"[0-9]+\.[0-9]+\.[0-9]+\"/spec.version      = \"{nextRelease.version}.0.0\"/g' WebRTC-lib.podspec")
     cartageFile = open("WebRTC.json", 'r')
 
     cartageJSON = json.loads(cartageFile.read())
-    cartageJSON[f'{nextRelease.version}.0.0'] = f'https://github.com/stasel/WebRTC/releases/download/{nextRelease.version}.0.0/WebRTC-M{nextRelease.version}.xcframework.zip'
+    cartageJSON[f'{nextRelease.version}.0.0'] = f'https://github.com/{GITHUB_REPO}/releases/download/{nextRelease.version}.0.0/WebRTC-M{nextRelease.version}.xcframework.zip'
     cartageFile.close()
     cartageJSONWrite = open("WebRTC.json", 'w')
     cartageJSONWrite.write(json.dumps(cartageJSON, indent=4, sort_keys=True))
@@ -186,7 +209,7 @@ if __name__ == "__main__":
     if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
         print("➡️ Sending Telegram notification...")
         bot = telegram.Bot(token=TELEGRAM_TOKEN)
-        message = f"New WebRTC Release M{nextRelease.version} is now available.\nCheck the PR here: https://github.com/stasel/WebRTC/pulls"
+        message = f"New WebRTC Release M{nextRelease.version} is now available.\nCheck the PR here: https://github.com/{GITHUB_REPO}/pulls"
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
 
     print(f"✅ Done")
