@@ -2,7 +2,7 @@
 [![Latest version](https://img.shields.io/github/v/release/stasel/webrtc)](https://github.com/stasel/WebRTC/releases)
 [![Cocoapods](https://img.shields.io/cocoapods/v/WebRTC-lib)](https://cocoapods.org/pods/WebRTC-lib)
 [![Release Date](https://img.shields.io/github/release-date/stasel/webrtc)](https://github.com/stasel/WebRTC/releases)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/stasel/WebRTC/webrtc-release.yml?branch=latest&label=Release%20job)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/stasel/WebRTC/webrtc-release.yml?branch=latest&label=Release%20job)](https://github.com/stasel/WebRTC/actions/workflows/webrtc-release.yml)
 [![Total Downloads](https://img.shields.io/github/downloads/stasel/webrtc/total)](https://github.com/stasel/WebRTC/releases)
 
 
